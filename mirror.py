@@ -15,6 +15,7 @@ import numpy as np
 
 # Globals and constants variables.
 
+
 class _Mirror(object):
 
     URLBASE = 'http://henke.lbl.gov'
@@ -31,7 +32,7 @@ class _Mirror(object):
         return requests.post(url, data)
 
     def _check_errors(self, response):
-        if not response.status_code == requests.codes.ok: #@UndefinedVariable
+        if not response.status_code == requests.codes.ok:  # @UndefinedVariable
             raise RuntimeError('Could not connect to server')
 
         if not response.text.startswith('<Head>'):
@@ -87,11 +88,13 @@ class _Mirror(object):
         """
         raise NotImplementedError
 
+
 class _Layer(object):
 
     def __init__(self, chemical_formula='SiO2', density_g_cm3=-1):
         self.chemical_formula = chemical_formula
         self.density_g_cm3 = density_g_cm3
+
 
 class ThickMirror(_Mirror):
 
@@ -138,13 +141,188 @@ class ThickMirror(_Mirror):
         data['Fixed'] = energy_eV
         return self._process('mirror.pl', data)
 
+
+class SingleLayerMirror(_Mirror):
+
+    def __init__(self):
+        self.layer_chemical_formula = 'C'
+        self.layer_density_g_cm3 = -1
+        self.layer_thickness_nm = 30
+        self.layer_roughness_nm = 0
+        self.sub_chemical_formula = 'SiO2'          # Substrate Material
+        self.sub_density_gm_cm3 = -1                # Substrate Density
+        self.sub_roughness_nm = 0                   # Substrate Roughness (nm)
+        self.polarization = 1                       # Polarization of Incoming Light
+
+    def _create_post_data(self):
+        data = {}
+        data['Layer'] = self.layer_chemical_formula
+        data['Ldensity'] = self.layer_density_g_cm3
+        data['Thick'] = self.layer_thickness_nm
+        data['Sigma1'] = self.layer_roughness_nm
+        data['Substrate'] = self.sub_chemical_formula
+        data['Sdensity'] = self.sub_density_gm_cm3
+        data['Sigma2'] = self.sub_roughness_nm
+        data['Pol'] = self.polarization
+        data['Plot'] = 'Linear'
+        data['Output'] = 'Plot'
+        return data
+
+    def calculate_energy_scan(self, e0_eV, e1_eV, step, angle_deg):
+        if e0_eV < 30:
+            raise ValueError('Minimum energy is 30 eV')
+        if e1_eV > 30000:
+            raise ValueError('Maximum energy is 30000 eV')
+
+        values = []
+        for e0, e1, step in self._iter_range(e0_eV, e1_eV, step):
+            data = self._create_post_data()
+            data['Scan'] = 'Energy'
+            data['Min'] = e0
+            data['Max'] = e1
+            data['Npts'] = step
+            data['Fixed'] = angle_deg
+            values.extend(self._process('laymir.pl', data)[:-1])
+
+        return np.array(values)
+
+    def calculate_wavelength_scan(self, lambda0_nm, lambda1_nm, step, angle_deg):
+        if lambda0_nm < 0.041:
+            raise ValueError('Minimum wavelength is 0.041 nm')
+        if lambda1_nm > 41.0:
+            raise ValueError('Maximum wavelength is 41 nm')
+
+        values = []
+        for lambda0, lambda1, step in \
+                self._iter_range(lambda0_nm, lambda1_nm, step):
+            data = self._create_post_data()
+            data['Scan'] = 'Wave'
+            data['Min'] = lambda0
+            data['Max'] = lambda1
+            data['Npts'] = step
+            data['Fixed'] = angle_deg
+            values.extend(self._process('laymir.pl', data)[:-1])
+
+        return np.array(values)
+
+    def calculate_angle_scan(self, theta0_deg, theta1_deg, step, energy_eV):
+        if theta0_deg < 0:
+            raise ValueError('Minimum angle is 0 deg')
+        if theta1_deg > 90:
+            raise ValueError('Maximum angle is 90 deg')
+
+        values = []
+        for theta0, theta1, step in \
+                self._iter_range(theta0_deg, theta1_deg, step):
+            data = self._create_post_data()
+            data['Scan'] = 'Angle'
+            data['Min'] = theta0
+            data['Max'] = theta1
+            data['Npts'] = step
+            data['Fixed'] = energy_eV
+            values.extend(self._process('laymir.pl', data)[:-1])
+
+
+class BiLayerMirror(_Mirror):
+
+    def __init__(self):
+        self.top_chemical_formula = 'C'             # Top Layer Material
+        self.top_density_gm_cm = -1                 # Top Layer Density
+        self.top_thickness_nm = 30                 # Top Layer Thickness (nm)
+        self.top_roughness_nm = 0                    # Top Layer Roughness (nm)
+        self.bot_chemical_formula = 'Cr'            # Bottom Layer Material
+        self.bot_density_gm_cm3 = -1                # Bottom Layer Density
+        # Bottom Layer Thickness (nm)
+        self.bot_thickness_nm = 10
+        # Bottom Layer Roughness (nm)
+        self.bot_roughness_nm = 0
+        self.sub_chemical_formula = 'SiO2'          # Substrate Material
+        self.sub_density_gm_cm3 = -1                # Substrate Density
+        self.sub_roughness_nm = 0                   # Substrate Roughness (nm)
+        self.polarization = 1                       # Polarization of Incoming Light
+
+    def _create_post_data(self):
+        data = {}
+        data['Tlayer'] = self.top_chemical_formula
+        data['Tdensity'] = self.top_density_g_cm3
+        data['Thickt'] = self.top_thickness_nm
+        data['Sigmat'] = self.top_roughness_nm
+        data['Blayer'] = self.bot_chemical_formula
+        data['Bdensity'] = self.bot_density_gm_cm3
+        data['Thickb'] = self.bot_thickness_nm
+        data['Sigmab'] = self.bot_roughness_nm
+        data['Substrate'] = self.sub_chemical_formula
+        data['Sdensity'] = self.sub_density_gm_cm3
+        data['Sigmas'] = self.sub_roughness_nm
+        data['Pol'] = self.polarization
+        data['Plot'] = 'Linear'
+        data['Output'] = 'Plot'
+        return data
+
+    def calculate_energy_scan(self, e0_eV, e1_eV, step, angle_deg):
+        if e0_eV < 30:
+            raise ValueError('Minimum energy is 30 eV')
+        if e1_eV > 30000:
+            raise ValueError('Maximum energy is 30000 eV')
+
+        values = []
+        for e0, e1, step in self._iter_range(e0_eV, e1_eV, step):
+            data = self._create_post_data()
+            data['Scan'] = 'Energy'
+            data['Min'] = e0
+            data['Max'] = e1
+            data['Npts'] = step
+            data['Fixed'] = angle_deg
+            values.extend(self._process('bimir.pl', data)[:-1])
+
+        return np.array(values)
+
+    def calculate_wavelength_scan(self, lambda0_nm, lambda1_nm, step, angle_deg):
+        if lambda0_nm < 0.041:
+            raise ValueError('Minimum wavelength is 0.041 nm')
+        if lambda1_nm > 41.0:
+            raise ValueError('Maximum wavelength is 41 nm')
+
+        values = []
+        for lambda0, lambda1, step in \
+                self._iter_range(lambda0_nm, lambda1_nm, step):
+            data = self._create_post_data()
+            data['Scan'] = 'Wave'
+            data['Min'] = lambda0
+            data['Max'] = lambda1
+            data['Npts'] = step
+            data['Fixed'] = angle_deg
+            values.extend(self._process('bimir.pl', data)[:-1])
+
+        return np.array(values)
+
+    def calculate_angle_scan(self, theta0_deg, theta1_deg, step, energy_eV):
+        if theta0_deg < 0:
+            raise ValueError('Minimum angle is 0 deg')
+        if theta1_deg > 90:
+            raise ValueError('Maximum angle is 90 deg')
+
+        values = []
+        for theta0, theta1, step in \
+                self._iter_range(theta0_deg, theta1_deg, step):
+            data = self._create_post_data()
+            data['Scan'] = 'Angle'
+            data['Min'] = theta0
+            data['Max'] = theta1
+            data['Npts'] = step
+            data['Fixed'] = energy_eV
+            values.extend(self._process('bimir.pl', data)[:-1])
+
+        return np.array(values)
+
+
 class MultiLayerMirror(_Mirror):
 
     def __init__(self):
         self._top_layer = _Layer('Si')
         self._bottom_layer = _Layer('Mo')
         self.period_nm = 6.9
-        self.ratio = 0.4 # bottom layer thickness / period
+        self.ratio = 0.4  # bottom layer thickness / period
         self.interdiffusion_thickenss_nm = 0
         self.nperiod = 40
         self._substrate = _Layer('SiO2')
@@ -235,6 +413,7 @@ class MultiLayerMirror(_Mirror):
     def substrate(self):
         return self._substrate
 
+
 class EnergyAngleScan(object):
 
     def __init__(self, mirror):
@@ -249,7 +428,8 @@ class EnergyAngleScan(object):
 
         for i, theta_deg in enumerate(thetas):
             self._progress = i / len(thetas)
-            dvalues = self.mirror.calculate_energy_scan(e0_eV, e1_eV, e_step, theta_deg)
+            dvalues = self.mirror.calculate_energy_scan(
+                e0_eV, e1_eV, e_step, theta_deg)
             values[:, i] = dvalues[:, 1]
 
         self._progress = 1
@@ -259,42 +439,3 @@ class EnergyAngleScan(object):
     @property
     def progress(self):
         return self._progress
-
-if __name__ == '__main__':
-    # LiF
-#    m = ThickMirror()
-#    m.chemical_formula = 'LiF'
-#    m.polarization = 0
-#
-#    for energy_eV in np.arange(4000, 13000, 1000):
-#        data = m.calculate_angle_scan(11, 55, 500, energy_eV)
-#
-#        filename = '/tmp/lif_%ieV.csv' % energy_eV
-#        np.savetxt(filename, data, delimiter=',')
-
-    # TAP
-    m = ThickMirror()
-    m.chemical_formula = 'TlHCBH4O4'
-    m.polarization = 0
-
-    for energy_eV in np.arange(600, 1900, 50):
-        data = m.calculate_angle_scan(11, 55, 500, energy_eV)
-
-        filename = '/tmp/tap_%ieV.csv' % energy_eV
-        np.savetxt(filename, data, delimiter=',')
-
-    # LDE2
-#    m = MultiLayerMirror()
-#    m.top_layer.chemical_formula = 'Ni'
-#    m.bottom_layer.chemical_formula = 'C'
-#    m.period_nm = 4.96
-#    m.polarization = 0
-#    m.interdiffusion_thickenss_nm = 0
-#    m.nperiod = -1
-#
-#    for energy_eV in np.arange(150, 500, 25):
-#        data = m.calculate_angle_scan(11, 55, 500, energy_eV)
-#
-#        filename = '/tmp/lde2_%ieV.csv' % energy_eV
-#        np.savetxt(filename, data, delimiter=',')
-
